@@ -2,8 +2,8 @@ import os
 import h5py
 import argparse
 import numpy as np
-from typing import Tuple
 from pathlib import Path
+from typing import Tuple, Optional
 
 import imageio.v3 as imageio
 from skimage.segmentation import find_boundaries
@@ -45,32 +45,37 @@ def _get_output_channels(with_affinities):
 def get_my_livecell_loaders(
         input_path: str,
         patch_shape: Tuple[int, int],
-        cell_types: str,
+        cell_types: Optional[str] = None,
         with_affinities: bool = False
 ):
     """Returns the LIVECell training and validation dataloaders
     """
-    if with_affinities:
+    train_loader = get_livecell_loader(
+        path=input_path,
+        split="train",
+        patch_shape=patch_shape,
+        batch_size=2,
+        download=True,
+        num_workers=16,
+        cell_types=None if cell_types is None else [cell_types],
         # this returns dataloaders with affinity channels and foreground-background channels
-        train_loader = get_livecell_loader(
-            path=input_path, split="train", patch_shape=patch_shape, batch_size=2,
-            cell_types=[cell_types], download=True, offsets=OFFSETS, num_workers=16
-        )
-        val_loader = get_livecell_loader(
-            path=input_path, split="val", patch_shape=patch_shape, batch_size=1,
-            cell_types=[cell_types], download=True, offsets=OFFSETS, num_workers=16
-        )
-
-    else:
+        offsets=OFFSETS if with_affinities else None,
         # this returns dataloaders with foreground and boundary channels
-        train_loader = get_livecell_loader(
-            path=input_path, split="train", patch_shape=patch_shape, batch_size=2,
-            cell_types=[cell_types], download=True, boundaries=True, num_workers=16
-        )
-        val_loader = get_livecell_loader(
-            path=input_path, split="val", patch_shape=patch_shape, batch_size=1,
-            cell_types=[cell_types], download=True, boundaries=True, num_workers=16
-        )
+        boundaries=False if with_affinities else True
+    )
+    val_loader = get_livecell_loader(
+        path=input_path,
+        split="val",
+        patch_shape=patch_shape,
+        batch_size=1,
+        download=True,
+        num_workers=16,
+        cell_types=None if cell_types is None else [cell_types],
+        # this returns dataloaders with affinity channels and foreground-background channels
+        offsets=OFFSETS if with_affinities else None,
+        # this returns dataloaders with foreground and boundary channels
+        boundaries=False if with_affinities else True
+    )
 
     return train_loader, val_loader
 
@@ -78,6 +83,11 @@ def get_my_livecell_loaders(
 #
 # UNETR MODEL(S) FROM MONAI AND torch_em
 #
+
+MODELS = {
+    "vit_b": "/scratch/projects/nim00007/sam/vanilla/sam_vit_b_01ec64.pth",
+    "vit_h": "/scratch/projects/nim00007/sam/vanilla/sam_vit_h_4b8939.pth"
+}
 
 
 def get_unetr_model(
@@ -94,7 +104,7 @@ def get_unetr_model(
         from torch_em import model as torch_em_models
         model = torch_em_models.UNETR(
             encoder=model_name, out_channels=output_channels,
-            encoder_checkpoint_path="/scratch/usr/nimanwai/models/segment-anything/checkpoints/sam_vit_b_01ec64.pth" if sam_initialization else None
+            encoder_checkpoint_path=MODELS[model_name] if sam_initialization else None
         )
 
     elif source_choice == "monai":
