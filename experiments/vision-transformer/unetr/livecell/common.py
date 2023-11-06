@@ -15,8 +15,6 @@ from torch_em.data.datasets import get_livecell_loader
 from torch_em.loss import DiceLoss, LossWrapper, ApplyAndRemoveMask
 from torch_em.util.prediction import predict_with_halo, predict_with_padding
 
-import common
-
 
 OFFSETS = [
     [-1, 0], [0, -1],
@@ -128,14 +126,14 @@ def get_unetr_model(
 # LIVECELL UNETR INFERENCE - foreground boundary / foreground affinities
 #
 
-def predict_for_unetr(img_path, model, root_save_dir, ctype, device, with_affinities):
+def predict_for_unetr(img_path, model, root_save_dir, device, with_affinities, ctype=None):
     input_ = imageio.imread(img_path)
     input_ = standardize(input_)
 
     if with_affinities:  # inference using affinities
         outputs = predict_with_padding(model, input_, device=device, min_divisible=(16, 16))
         fg, affs = np.array(outputs[0, 0]), np.array(outputs[0, 1:])
-        mws = segmentation.mutex_watershed_segmentation(fg, affs, common.OFFSETS, 250)
+        mws = segmentation.mutex_watershed_segmentation(fg, affs, OFFSETS, 250)
 
     else:  # inference using foreground-boundary inputs - for the unetr training
         outputs = predict_with_halo(input_, model, [device], block_shape=[384, 384], halo=[64, 64], disable_tqdm=True)
@@ -144,7 +142,8 @@ def predict_for_unetr(img_path, model, root_save_dir, ctype, device, with_affini
         ws2 = segmentation.watershed_from_maxima(bd, fg, min_size=250, min_distance=1)
 
     fname = Path(img_path).stem
-    with h5py.File(os.path.join(root_save_dir, f"src-{ctype}", f"{fname}.h5"), "a") as f:
+    save_path = os.path.join(root_save_dir, "src-all" if ctype is None else f"src-{ctype}", f"{fname}.h5")
+    with h5py.File(save_path, "a") as f:
         ds = f.require_dataset("foreground", shape=fg.shape, compression="gzip", dtype=fg.dtype)
         ds[:] = fg
         if with_affinities:

@@ -38,7 +38,6 @@ def do_unetr_training(
     trainer.fit(iterations)
 
 
-# FIXME
 def do_unetr_inference(
         input_path: str,
         device: torch.device,
@@ -56,11 +55,11 @@ def do_unetr_inference(
     model.eval()
 
     # creating the respective directories for saving the outputs
-    os.makedirs(os.path.join(root_save_dir, f"src-{ctype}"), exist_ok=True)
+    os.makedirs(os.path.join(root_save_dir, "src-all"), exist_ok=True)
 
     with torch.no_grad():
         for img_path in tqdm(glob(test_img_dir), desc=f"Run inference for all livecell with model {model_ckpt}"):
-            common.predict_for_unetr(img_path, model, root_save_dir, ctype, device, with_affinities)
+            common.predict_for_unetr(img_path, model, root_save_dir, device, with_affinities)
 
 
 # FIXME
@@ -156,6 +155,12 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # overwrite to use complex device setups
     patch_shape = (512, 512)  # patch size used for training on livecell
 
+    # directory folder to save different parts of the scheme
+    dir_structure = os.path.join(
+        args.model_name, "affinities" if args.with_affinities else "boundaries",
+        f"{args.source_choice}-sam" if args.do_sam_ini else f"{args.source_choice}-scratch"
+    )
+
     # get the desired loss function for training
     loss = common.get_loss_function(
         with_affinities=args.with_affinities  # takes care of calling the loss for training with affinities
@@ -169,10 +174,7 @@ def main(args):
     model.to(device)
 
     # determining where to save the checkpoints and tensorboard logs
-    save_root = os.path.join(
-        args.save_root, args.model_name, "affinities" if args.with_affinities else "boundaries",
-        f"{args.source_choice}-sam" if args.do_sam_ini else f"{args.source_choice}-scratch"
-    ) if args.save_root is not None else args.save_root
+    save_root = os.path.join(args.save_root, dir_structure) if args.save_root is not None else args.save_root
 
     if args.train:
         print("2d UNETR training on LIVECell dataset")
@@ -187,23 +189,19 @@ def main(args):
         )
 
     # determines the directory where the predictions will be saved
-    root_save_dir = os.path.join(
-        args.save_dir, "affinities" if args.with_affinities else "boundaries",
-        f"{args.source_choice}-sam" if args.do_sam_ini else f"{args.source_choice}-scratch"
-    )
+    root_save_dir = os.path.join(args.save_dir, dir_structure)
 
     if args.predict:
         print("2d UNETR inference on LIVECell dataset")
         do_unetr_inference(
-            input_path=args.input, device=device, model=model, cell_types=common.CELL_TYPES,
-            root_save_dir=root_save_dir, save_root=save_root, with_affinities=args.with_affinities
+            input_path=args.input, device=device, model=model, save_root=save_root,
+            root_save_dir=root_save_dir, with_affinities=args.with_affinities
         )
         print("Predictions are saved in", root_save_dir)
 
     if args.evaluate:
         print("2d UNETR evaluation on LIVECell dataset")
-        tmp_csv_name = f"{args.source_choice}-sam" if args.do_sam_ini else f"{args.source_choice}-scratch"
-        csv_save_dir = os.path.join("results", "affinities" if args.with_affinities else "boundaries", tmp_csv_name)
+        csv_save_dir = os.path.join("results", dir_structure)
         os.makedirs(csv_save_dir, exist_ok=True)
 
         do_unetr_evaluation(
