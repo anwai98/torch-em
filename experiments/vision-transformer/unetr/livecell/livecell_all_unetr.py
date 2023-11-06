@@ -62,93 +62,53 @@ def do_unetr_inference(
             common.predict_for_unetr(img_path, model, root_save_dir, device, with_affinities)
 
 
-# FIXME
 def do_unetr_evaluation(
         input_path: str,
-        cell_types: List[str],
         root_save_dir: str,
         csv_save_dir: str,
         with_affinities: bool
 ):
-    # list for foreground-boundary evaluations
-    fg_list, bd_list = [], []
-    ws1_msa_list, ws2_msa_list, ws1_sa50_list, ws2_sa50_list = [], [], [], []
+    _save_dir = os.path.join(root_save_dir, "src-all")
+    assert os.path.exists(_save_dir), _save_dir
 
-    # lists for affinities evaluation
+    gt_dir = os.path.join(input_path, "annotations", "livecell_test_images", "*", "*")
+
     mws_msa_list, mws_sa50_list = [], []
-
-    for c1 in cell_types:
-        # we check whether we have predictions from a particular cell-type
-        _save_dir = os.path.join(root_save_dir, f"src-{c1}")
-        if not os.path.exists(_save_dir):
-            print("Skipping", _save_dir)
-            continue
-
-        # dict for foreground-boundary evaluations
-        fg_set, bd_set = {"CELL TYPE": c1}, {"CELL TYPE": c1}
-        (ws1_msa_set, ws2_msa_set,
-         ws1_sa50_set, ws2_sa50_set) = {"CELL TYPE": c1}, {"CELL TYPE": c1}, {"CELL TYPE": c1}, {"CELL TYPE": c1}
-
-        # dict for affinities evaluation
-        mws_msa_set, mws_sa50_set = {"CELL TYPE": c1}, {"CELL TYPE": c1}
-
-        for c2 in tqdm(cell_types, desc=f"Evaluation on {c1} source models from {_save_dir}"):
-            gt_dir = os.path.join(input_path, "annotations", "livecell_test_images", c2, "*")
-
-            # cell-wise evaluation list for foreground-boundary evaluations
-            cwise_fg, cwise_bd = [], []
-            cwise_ws1_msa, cwise_ws2_msa, cwise_ws1_sa50, cwise_ws2_sa50 = [], [], [], []
-
-            # cell-wise evaluation list for affinities evaluation
-            cwise_mws_msa, cwise_mws_sa50 = [], []
-
-            for gt_path in glob(gt_dir):
-                all_metrics = common.evaluate_for_unetr(gt_path, _save_dir, with_affinities)
-                if with_affinities:
-                    mws_msa, mws_sa50 = all_metrics
-                    cwise_mws_msa.append(mws_msa)
-                    cwise_mws_sa50.append(mws_sa50)
-                else:
-                    fg_dice, bd_dice, msa1, sa_acc1, msa2, sa_acc2 = all_metrics
-                    cwise_fg.append(fg_dice)
-                    cwise_bd.append(bd_dice)
-                    cwise_ws1_msa.append(msa1)
-                    cwise_ws2_msa.append(msa2)
-                    cwise_ws1_sa50.append(sa_acc1[0])
-                    cwise_ws2_sa50.append(sa_acc2[0])
-
-            if with_affinities:
-                mws_msa_set[c2], mws_sa50_set[c2] = np.mean(cwise_mws_msa), np.mean(cwise_mws_sa50)
-            else:
-                fg_set[c2], bd_set[c2] = np.mean(cwise_fg), np.mean(cwise_bd)
-                ws1_msa_set[c2], ws2_msa_set[c2] = np.mean(cwise_ws1_msa), np.mean(cwise_ws2_msa)
-                ws1_sa50_set[c2], ws2_sa50_set[c2] = np.mean(cwise_ws1_sa50), np.mean(cwise_ws2_sa50)
-
+    fg_list, bd_list, msa1_list, sa501_list, msa2_list, sa502_list = [], [], [], [], [], []
+    for gt_path in glob(gt_dir):
+        all_metrics = common.evaluate_for_unetr(gt_path, _save_dir, with_affinities)
         if with_affinities:
-            mws_msa_list.append(pd.DataFrame.from_dict([mws_msa_set]))
-            mws_sa50_list.append(pd.DataFrame.from_dict([mws_sa50_set]))
+            msa, sa50 = all_metrics
+            mws_msa_list.append(msa)
+            mws_sa50_list.append(sa50)
         else:
-            fg_list.append(pd.DataFrame.from_dict([fg_set]))
-            bd_list.append(pd.DataFrame.from_dict([bd_set]))
-            ws1_msa_list.append(pd.DataFrame.from_dict([ws1_msa_set]))
-            ws2_msa_list.append(pd.DataFrame.from_dict([ws2_msa_set]))
-            ws1_sa50_list.append(pd.DataFrame.from_dict([ws1_sa50_set]))
-            ws2_sa50_list.append(pd.DataFrame.from_dict([ws2_sa50_set]))
+            fg_dice, bd_dice, msa1, sa_acc1, msa2, sa_acc2 = all_metrics
+            fg_list.append(fg_dice)
+            bd_list.append(bd_dice)
+            msa1_list.append(msa1)
+            sa501_list.append(sa_acc1[0])
+            msa2_list.append(msa2)
+            sa502_list.append(sa_acc2[0])
 
     if with_affinities:
-        df_mws_msa, df_mws_sa50 = pd.concat(mws_msa_list, ignore_index=True), pd.concat(mws_sa50_list, ignore_index=True)
-        df_mws_msa.to_csv(os.path.join(csv_save_dir, "mws-affs-msa.csv"))
-        df_mws_sa50.to_csv(os.path.join(csv_save_dir, "mws-affs-sa50.csv"))
+        res_dict = {
+            "LIVECell": "Metrics",
+            "mSA": np.mean(mws_msa_list),
+            "SA50": np.mean(mws_sa50_list)
+        }
     else:
-        df_fg, df_bd = pd.concat(fg_list, ignore_index=True), pd.concat(bd_list, ignore_index=True)
-        df_ws1_msa, df_ws2_msa = pd.concat(ws1_msa_list, ignore_index=True), pd.concat(ws2_msa_list, ignore_index=True)
-        df_ws1_sa50, df_ws2_sa50 = pd.concat(ws1_sa50_list, ignore_index=True), pd.concat(ws2_sa50_list, ignore_index=True)
-        df_fg.to_csv(os.path.join(csv_save_dir, "foreground-dice.csv"))
-        df_bd.to_csv(os.path.join(csv_save_dir, "boundary-dice.csv"))
-        df_ws1_msa.to_csv(os.path.join(csv_save_dir, "watershed1-msa.csv"))
-        df_ws2_msa.to_csv(os.path.join(csv_save_dir, "watershed2-msa.csv"))
-        df_ws1_sa50.to_csv(os.path.join(csv_save_dir, "watershed1-sa50.csv"))
-        df_ws2_sa50.to_csv(os.path.join(csv_save_dir, "watershed2-sa50.csv"))
+        res_dict = {
+            "LIVECell": "Metrics",
+            "foreground": np.mean(fg_list),
+            "boundary": np.mean(bd_list),
+            "mSA_w1": np.mean(msa1_list),
+            "SA50_w1": np.mean(sa501_list),
+            "mSA_w2": np.mean(msa2_list),
+            "SA50_w2": np.mean(sa502_list)
+        }
+
+    df = pd.DataFrame.from_dict([res_dict])
+    df.to_csv(os.path.join(csv_save_dir, "livecell.csv"))
 
 
 def main(args):
@@ -205,7 +165,7 @@ def main(args):
         os.makedirs(csv_save_dir, exist_ok=True)
 
         do_unetr_evaluation(
-            input_path=args.input, cell_types=common.CELL_TYPES, root_save_dir=root_save_dir,
+            input_path=args.input, root_save_dir=root_save_dir,
             csv_save_dir=csv_save_dir, with_affinities=args.with_affinities
         )
 
