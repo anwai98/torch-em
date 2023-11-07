@@ -165,8 +165,7 @@ def predict_for_unetr(img_path, model, root_save_dir, device, with_affinities, c
 #
 
 def evaluate_for_unetr(gt_path, _save_dir, with_affinities):
-    # FIXME: fname = Path(img_path).stem
-    fname = os.path.split(gt_path)[-1]
+    fname = Path(gt_path).stem
     gt = imageio.imread(gt_path)
 
     output_file = os.path.join(_save_dir, f"{fname}.h5")

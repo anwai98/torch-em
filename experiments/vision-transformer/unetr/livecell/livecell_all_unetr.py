@@ -74,7 +74,7 @@ def do_unetr_evaluation(
 
     mws_msa_list, mws_sa50_list = [], []
     fg_list, bd_list, msa1_list, sa501_list, msa2_list, sa502_list = [], [], [], [], [], []
-    for gt_path in glob(gt_dir):
+    for gt_path in tqdm(glob(gt_dir)):
         all_metrics = common.evaluate_for_unetr(gt_path, _save_dir, with_affinities)
         if with_affinities:
             msa, sa50 = all_metrics
@@ -98,12 +98,10 @@ def do_unetr_evaluation(
     else:
         res_dict = {
             "LIVECell": "Metrics",
-            "foreground": np.mean(fg_list),
-            "boundary": np.mean(bd_list),
-            "mSA_w1": np.mean(msa1_list),
-            "SA50_w1": np.mean(sa501_list),
-            "mSA_w2": np.mean(msa2_list),
-            "SA50_w2": np.mean(sa502_list)
+            "ws1_mSA": np.mean(msa1_list),
+            "ws1_SA50": np.mean(sa501_list),
+            "ws2_mSA": np.mean(msa2_list),
+            "ws2_SA50": np.mean(sa502_list)
         }
 
     df = pd.DataFrame.from_dict([res_dict])
