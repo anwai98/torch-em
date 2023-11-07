@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 from glob import glob
 from tqdm import tqdm
-from typing import List
 
 import torch
 import torch_em
@@ -47,7 +46,7 @@ def do_unetr_inference(
         with_affinities: bool
 ):
     test_img_dir = os.path.join(input_path, "images", "livecell_test_images", "*")
-    model_ckpt = os.path.join(save_root, "checkpoints", "livecell", "best.pt")
+    model_ckpt = os.path.join(save_root, "checkpoints", "livecell-all", "best.pt")
     assert os.path.exists(model_ckpt), model_ckpt
 
     model.load_state_dict(torch.load(model_ckpt, map_location=torch.device('cpu'))["model_state"])
