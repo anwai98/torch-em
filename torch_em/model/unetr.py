@@ -99,7 +99,9 @@ class ViT_MAE(timm_vit.VisionTransformer):
 
         for blk in self.blocks:
             x = blk(x)
-
+        # reshape
+        # 1, H*W, 768 -> 1, H, W, 768
+        # do this for all ***block** outputs that go into UNETR (list_encoder)
         return x
 
 
