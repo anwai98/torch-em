@@ -24,7 +24,7 @@ try:
     import timm.models.vision_transformer as timm_vit
     _timm_import_success = True
 except ImportError:
-    timm_vit = object
+    timm_vit.VisionTransformer = object
     _timm_import_success = False
 
 
@@ -142,7 +142,6 @@ class UNETR(nn.Module):
         self.use_mae_stats = use_mae_stats
 
         if backbone == "sam":
-            self.use_sam_preprocessing = use_sam_preprocessing
             if encoder == "vit_b":
                 self.encoder = ViT_Sam(
                     depth=12, embed_dim=768, img_size=1024,  mlp_ratio=4,
