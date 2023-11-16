@@ -8,7 +8,7 @@ from typing import Tuple
 from functools import partial
 from torch_em.model.unet import Decoder, ConvBlock2d, Upsampler2d
 
-# we catch ImportErrors here because segment_anything and micro_sam should
+# we catch ImportErrors here because segment_anything, micro_sam and timm should
 # only be optional dependencies for torch_em
 try:
     from segment_anything.modeling import ImageEncoderViT
@@ -246,6 +246,7 @@ class UNETR(nn.Module):
             pixel_mean = torch.Tensor([123.675, 116.28, 103.53]).view(-1, 1, 1).to(device)
             pixel_std = torch.Tensor([58.395, 57.12, 57.375]).view(-1, 1, 1).to(device)
         elif self.use_mae_stats:
+            # TODO: add mean std from mae experiments (or open up arguments for this)
             raise NotImplementedError
         else:
             pixel_mean = 0
