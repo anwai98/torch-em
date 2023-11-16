@@ -1,5 +1,3 @@
-import math
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,7 +24,7 @@ try:
     import timm.models.vision_transformer as timm_vit
     _timm_import_success = True
 except ImportError:
-    timm_vit.VisionTransformer = object
+    timm_vit = object
     _timm_import_success = False
 
 
