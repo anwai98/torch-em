@@ -88,6 +88,7 @@ class ViT_MAE(timm_vit.VisionTransformer):
         super().__init__(depth=depth, **kwargs)
         self.in_chans = in_chans
         self.depth = depth
+        self.img_size = self.patch_embed.img_size[0]
 
     def convert_to_expected_dim(self, inputs_):
         inputs_ = inputs_[:, 1:, :]  # removing the class tokens
@@ -116,11 +117,14 @@ class ViT_MAE(timm_vit.VisionTransformer):
         for i, blk in enumerate(self.blocks):
             x = blk(x)
             if i in chunks_for_projection:
-                print("yes at", i)
                 list_from_encoder.append(self.convert_to_expected_dim(x))
 
         x = self.convert_to_expected_dim(x)
         return x, list_from_encoder[:3]
+
+    def forward(self, x):
+        x, list_from_encoder = self.forward_features(x)
+        return x, list_from_encoder
 
 
 class UNETR(nn.Module):
@@ -130,10 +134,14 @@ class UNETR(nn.Module):
         encoder="vit_b",
         decoder=None,
         out_channels=1,
-        use_sam_preprocessing=True,
+        use_sam_stats=True,
+        use_mae_stats=False,
         encoder_checkpoint_path=None
     ) -> None:
         super().__init__()
+
+        self.use_sam_stats = use_sam_stats
+        self.use_mae_stats = use_mae_stats
 
         if backbone == "sam":
             self.use_sam_preprocessing = use_sam_preprocessing
@@ -234,8 +242,14 @@ class UNETR(nn.Module):
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        pixel_mean = torch.Tensor([123.675, 116.28, 103.53]).view(-1, 1, 1).to(device)
-        pixel_std = torch.Tensor([58.395, 57.12, 57.375]).view(-1, 1, 1).to(device)
+        if self.use_sam_stats:
+            pixel_mean = torch.Tensor([123.675, 116.28, 103.53]).view(-1, 1, 1).to(device)
+            pixel_std = torch.Tensor([58.395, 57.12, 57.375]).view(-1, 1, 1).to(device)
+        elif self.use_mae_stats:
+            raise NotImplementedError
+        else:
+            pixel_mean = 0
+            pixel_std = 1
 
         x = (x - pixel_mean) / pixel_std
         h, w = x.shape[-2:]
@@ -263,12 +277,12 @@ class UNETR(nn.Module):
     def forward(self, x):
         org_shape = x.shape[-2:]
 
-        if self.use_sam_preprocessing:
-            x = torch.stack([self.preprocess(e) for e in x], dim=0)
+        # backbone used for reshaping inputs to the desired "encoder" shape
+        x = torch.stack([self.preprocess(e) for e in x], dim=0)
 
-        # z0 = self.z_inputs(x)
+        z0 = self.z_inputs(x)
 
-        z12, from_encoder = self.encoder(x)  # type: ignore
+        z12, from_encoder = self.encoder(x)
         x = self.base(z12)
 
         from_encoder = from_encoder[::-1]
