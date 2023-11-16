@@ -20,8 +20,15 @@ try:
 except ImportError:
     get_sam_model = None
 
+try:
+    import timm.models.vision_transformer as timm_vit
+    _timm_import_success = True
+except ImportError:
+    timm_vit.VisionTransformer = object
+    _timm_import_success = False
 
-class ViT_Sam(ImageEncoderViT):  # type: ignore
+
+class ViT_Sam(ImageEncoderViT):
     """Vision Transformer derived from the Segment Anything Codebase (https://arxiv.org/abs/2304.02643):
     https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/image_encoder.py
     """
@@ -60,133 +67,125 @@ class ViT_Sam(ImageEncoderViT):  # type: ignore
         return x, list_from_encoder[:3]  # type: ignore
 
 
-def window_partition(x: torch.Tensor, window_size: int) -> Tuple[torch.Tensor, Tuple[int, int]]:
+class ViT_MAE(timm_vit.VisionTransformer):
+    """Vision Transformer derived from the Masked Auto Encoder Codebase (https://arxiv.org/abs/2111.06377)
+    https://github.com/facebookresearch/mae/blob/main/models_vit.py#L20-L53
     """
-    Partition into non-overlapping windows with padding if needed.
-    Args:
-        x (tensor): input tokens with [B, H, W, C].
-        window_size (int): window size.
+    def __init__(
+            self,
+            in_chans=3,
+            **kwargs
+    ):
+        if not _timm_import_success:
+            raise RuntimeError(
+                "The vision transformer backend can only be initialized if timm is installed."
+                "Please install timm (using conda/mamba) for using https://github.com/facebookresearch/mae/."
+                "and then rerun your code"
+            )
+        super().__init__(**kwargs)
+        self.in_chans = in_chans
 
-    Returns:
-        windows: windows after partition with [B * num_windows, window_size, window_size, C].
-        (Hp, Wp): padded height and width before partition
-    """
-    B, H, W, C = x.shape
+    def forward_features(self, x):
+        print(x.shape)
+        B = x.shape[0]
+        x = self.patch_embed(x)
+        breakpoint()
 
-    pad_h = (window_size - H % window_size) % window_size
-    pad_w = (window_size - W % window_size) % window_size
-    if pad_h > 0 or pad_w > 0:
-        x = F.pad(x, (0, 0, 0, pad_w, 0, pad_h))
-    Hp, Wp = H + pad_h, W + pad_w
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
 
-    x = x.view(B, Hp // window_size, window_size, Wp // window_size, window_size, C)
-    windows = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)
-    return windows, (Hp, Wp)
+        x = x + self.pos_embed
+        x = self.pos_drop(x)
 
+        for blk in self.blocks:
+            x = blk(x)
 
-def window_unpartition(
-    windows: torch.Tensor, window_size: int, pad_hw: Tuple[int, int], hw: Tuple[int, int]
-) -> torch.Tensor:
-    """
-    Window unpartition into original sequences and removing padding.
-    Args:
-        windows (tensor): input tokens with [B * num_windows, window_size, window_size, C].
-        window_size (int): window size.
-        pad_hw (Tuple): padded height and width (Hp, Wp).
-        hw (Tuple): original height and width (H, W) before padding.
-
-    Returns:
-        x: unpartitioned sequences with [B, H, W, C].
-    """
-    Hp, Wp = pad_hw
-    H, W = hw
-    B = windows.shape[0] // (Hp * Wp // window_size // window_size)
-    x = windows.view(B, Hp // window_size, Wp // window_size, window_size, window_size, -1)
-    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, Hp, Wp, -1)
-
-    if Hp > H or Wp > W:
-        x = x[:, :H, :W, :].contiguous()
-    return x
+        return x
 
 
 class UNETR(nn.Module):
     def __init__(
         self,
+        backbone="sam",
         encoder="vit_b",
         decoder=None,
         out_channels=1,
         use_sam_preprocessing=True,
         encoder_checkpoint_path=None
     ) -> None:
+        super().__init__()
+
+        if backbone == "sam":
+            self.use_sam_preprocessing = use_sam_preprocessing
+            if encoder == "vit_b":
+                self.encoder = ViT_Sam(
+                    depth=12, embed_dim=768, img_size=1024,  mlp_ratio=4,
+                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),  # type: ignore
+                    num_heads=12, patch_size=16, qkv_bias=True, use_rel_pos=True,
+                    global_attn_indexes=[2, 5, 8, 11],  # type: ignore
+                    window_size=14, out_chans=256,
+                )
+            elif encoder == "vit_l":
+                self.encoder = ViT_Sam(
+                    depth=24, embed_dim=1024, img_size=1024, mlp_ratio=4,
+                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),  # type: ignore
+                    num_heads=16, patch_size=16, qkv_bias=True, use_rel_pos=True,
+                    global_attn_indexes=[5, 11, 17, 23],  # type: ignore
+                    window_size=14,  out_chans=256
+                )
+            elif encoder == "vit_h":
+                self.encoder = ViT_Sam(
+                    depth=32, embed_dim=1280, img_size=1024, mlp_ratio=4,
+                    norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),  # type: ignore
+                    num_heads=16, patch_size=16, qkv_bias=True, use_rel_pos=True,
+                    global_attn_indexes=[7, 15, 23, 31],  # type: ignore
+                    window_size=14, out_chans=256
+                )
+
+            else:
+                raise ValueError(f"{encoder} is not supported by SAM. Currently vit_b, vit_l, vit_h are supported.")
+
+        elif backbone == "mae":
+            self.use_sam_preprocessing = False
+            if encoder == "vit_b":
+                self.encoder = ViT_MAE(
+                    patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
+                    norm_layer=partial(nn.LayerNorm, eps=1e-6)
+                )
+            elif encoder == "vit_l":
+                self.encoder = ViT_MAE(
+                    patch_size=16, embed_dim=1024, depth=24, num_heads=16, mlp_ratio=4, qkv_bias=True,
+                    norm_layer=partial(nn.LayerNorm, eps=1e-6)
+                )
+            elif encoder == "vit_h":
+                self.encoder = ViT_MAE(
+                    patch_size=14, embed_dim=1280, depth=32, num_heads=16, mlp_ratio=4, qkv_bias=True,
+                    norm_layer=partial(nn.LayerNorm, eps=1e-6)
+                )
+            else:
+                raise ValueError(f"{encoder} is not supported by MAE. Currently vit_b, vit_l, vit_h are supported.")
+
+        else:
+            raise ValueError("The UNETR supported backbones are `sam` or `mae`. Please choose either of the two")
+
+        if backbone == "sam":
+            _, model = get_sam_model(
+                model_type=encoder,
+                checkpoint_path=encoder_checkpoint_path,
+                return_sam=True
+            )
+            for param1, param2 in zip(model.parameters(), self.encoder.parameters()):
+                param2.data = param1
+
+        # TODO: ini MAE weights in vit mae
+
+        # parameters for the decoder network
         depth = 3
         initial_features = 64
         gain = 2
         features_decoder = [initial_features * gain ** i for i in range(depth + 1)][::-1]
         scale_factors = depth * [2]
         self.out_channels = out_channels
-        self.use_sam_preprocessing = use_sam_preprocessing
-
-        super().__init__()
-
-        if encoder == "vit_b":
-            self.encoder = ViT_Sam(
-                depth=12,
-                embed_dim=768,
-                img_size=1024,
-                mlp_ratio=4,
-                norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),  # type: ignore
-                num_heads=12,
-                patch_size=16,
-                qkv_bias=True,
-                use_rel_pos=True,
-                global_attn_indexes=[2, 5, 8, 11],  # type: ignore
-                window_size=14,
-                out_chans=256,
-            )
-
-        elif encoder == "vit_l":
-            self.encoder = ViT_Sam(
-                depth=24,
-                embed_dim=1024,
-                img_size=1024,
-                mlp_ratio=4,
-                norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),  # type: ignore
-                num_heads=16,
-                patch_size=16,
-                qkv_bias=True,
-                use_rel_pos=True,
-                global_attn_indexes=[5, 11, 17, 23],  # type: ignore
-                window_size=14,
-                out_chans=256
-            )
-
-        elif encoder == "vit_h":
-            self.encoder = ViT_Sam(
-                depth=32,
-                embed_dim=1280,
-                img_size=1024,
-                mlp_ratio=4,
-                norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),  # type: ignore
-                num_heads=16,
-                patch_size=16,
-                qkv_bias=True,
-                use_rel_pos=True,
-                global_attn_indexes=[7, 15, 23, 31],  # type: ignore
-                window_size=14,
-                out_chans=256
-            )
-
-        else:
-            raise ValueError(f"{encoder} is not supported. Currently only vit_b, vit_l, vit_h are supported.")
-
-        if encoder_checkpoint_path is not None:
-            _, model = get_sam_model(
-                model_type=encoder,
-                checkpoint_path=encoder_checkpoint_path,
-                return_sam=True
-            )  # type: ignore
-            for param1, param2 in zip(model.parameters(), self.encoder.parameters()):
-                param2.data = param1
 
         if decoder is None:
             self.decoder = Decoder(
@@ -247,7 +246,7 @@ class UNETR(nn.Module):
         if self.use_sam_preprocessing:
             x = torch.stack([self.preprocess(e) for e in x], dim=0)
 
-        z0 = self.z_inputs(x)
+        # z0 = self.z_inputs(x)
 
         z12, from_encoder = self.encoder(x)  # type: ignore
         x = self.base(z12)
