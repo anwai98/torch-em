@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -64,7 +66,7 @@ class ViT_Sam(ImageEncoderViT):
 
         x = x.permute(0, 3, 1, 2)
         list_from_encoder = [e.permute(0, 3, 1, 2) for e in list_from_encoder]
-        return x, list_from_encoder[:3]  # type: ignore
+        return x, list_from_encoder[:3]
 
 
 class ViT_MAE(timm_vit.VisionTransformer):
@@ -74,6 +76,7 @@ class ViT_MAE(timm_vit.VisionTransformer):
     def __init__(
             self,
             in_chans=3,
+            depth=12,
             **kwargs
     ):
         if not _timm_import_success:
@@ -82,14 +85,22 @@ class ViT_MAE(timm_vit.VisionTransformer):
                 "Please install timm (using conda/mamba) for using https://github.com/facebookresearch/mae/."
                 "and then rerun your code"
             )
-        super().__init__(**kwargs)
+        super().__init__(depth=depth, **kwargs)
         self.in_chans = in_chans
+        self.depth = depth
+
+    def convert_to_expected_dim(self, inputs_):
+        inputs_ = inputs_[:, 1:, :]  # removing the class tokens
+        # reshape the outputs to desired shape (N x H*W X C -> N x H x W x C)
+        rdim = inputs_.shape[1]
+        dshape = int(rdim ** 0.5)  # finding the square root of the outputs for obtaining the patch shape
+        inputs_ = torch.unflatten(inputs_, 1, (dshape, dshape))
+        inputs_ = inputs_.permute(0, 3, 1, 2)
+        return inputs_
 
     def forward_features(self, x):
-        print(x.shape)
         B = x.shape[0]
         x = self.patch_embed(x)
-        breakpoint()
 
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
@@ -97,12 +108,19 @@ class ViT_MAE(timm_vit.VisionTransformer):
         x = x + self.pos_embed
         x = self.pos_drop(x)
 
-        for blk in self.blocks:
+        # chunks obtained for getting the projections for conjuctions with upsampling blocks
+        _chunks = int(self.depth / 4)
+        chunks_for_projection = [_chunks - 1, 2*_chunks - 1, 3*_chunks - 1, 4*_chunks - 1]
+
+        list_from_encoder = []
+        for i, blk in enumerate(self.blocks):
             x = blk(x)
-        # reshape
-        # 1, H*W, 768 -> 1, H, W, 768
-        # do this for all ***block** outputs that go into UNETR (list_encoder)
-        return x
+            if i in chunks_for_projection:
+                print("yes at", i)
+                list_from_encoder.append(self.convert_to_expected_dim(x))
+
+        x = self.convert_to_expected_dim(x)
+        return x, list_from_encoder[:3]
 
 
 class UNETR(nn.Module):
