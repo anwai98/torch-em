@@ -73,6 +73,7 @@ class ViT_MAE(timm_vit.VisionTransformer):
     """
     def __init__(
             self,
+            img_size=1024,  # chosen to match our experiments with segment anything
             in_chans=3,
             depth=12,
             **kwargs
@@ -83,10 +84,10 @@ class ViT_MAE(timm_vit.VisionTransformer):
                 "Please install timm (using conda/mamba) for using https://github.com/facebookresearch/mae/."
                 "and then rerun your code"
             )
-        super().__init__(depth=depth, **kwargs)
+        super().__init__(img_size=img_size, depth=depth, **kwargs)
+        self.img_size = img_size
         self.in_chans = in_chans
         self.depth = depth
-        self.img_size = self.patch_embed.img_size[0]
 
     def convert_to_expected_dim(self, inputs_):
         inputs_ = inputs_[:, 1:, :]  # removing the class tokens

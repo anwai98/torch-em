@@ -8,7 +8,7 @@ model = UNETR(
 )
 model.to(device)
 
-x = torch.randn(1, 3, 1024, 1024).to(device=device)
+x = torch.randn(1, 3, 512, 512).to(device=device)
 
 y = model(x)
 print(y.shape)
