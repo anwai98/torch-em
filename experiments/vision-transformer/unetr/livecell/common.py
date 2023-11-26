@@ -15,7 +15,8 @@ import torch.nn as nn
 from torch_em.util import segmentation
 from torch_em.transform.raw import standardize
 from torch_em.data.datasets import get_livecell_loader
-from torch_em.loss import DiceLoss, LossWrapper, ApplyAndRemoveMask
+from torch_em.loss import LossWrapper, ApplyAndRemoveMask
+from torch_em.loss.dice import DiceLoss, DiceLossWithLogits
 from torch_em.util.prediction import predict_with_halo, predict_with_padding
 
 from micro_sam.util import get_centers_and_bounding_boxes
@@ -81,32 +82,39 @@ def get_distance_maps(labels):
         # Second expensive step: compute the distance transform
         # this is done for each instance so we want to reduce the effort by restricting this to the bounding box
         this_distances = vigra.filters.vectorDistanceTransform(cropped_center_mask).transpose((2, 0, 1))  # directed distance transform applied to the centers
-        this_x_distances, this_y_distances = this_distances[0], this_distances[1]
+        this_y_distances, this_x_distances = this_distances[0], this_distances[1]
 
         # masking the distance transforms in the instances
-        this_x_distances[~cropped_mask] = 0
         this_y_distances[~cropped_mask] = 0
+        this_x_distances[~cropped_mask] = 0
 
         # nornmalize the distances
-        this_x_distances /= this_x_distances.max()
-        this_y_distances /= this_y_distances.max()
+        this_y_distances /= np.abs(this_y_distances).max() + 1e-7
+        this_x_distances /= np.abs(this_x_distances).max() + 1e-7
+
+        # checks for making sure that our range is between [-1, 1] for both distance maps
+        if np.abs(this_y_distances).max() > 1:
+            raise RuntimeError(np.unique(this_y_distances))
+
+        if np.abs(this_x_distances).max() > 1:
+            raise RuntimeError(np.unique(this_x_distances))        
 
         # set all distances outside of cells to 0
-        x_distances[
-            max(bbox[0], 0): min(bbox[2], mask.shape[-2]),
-            max(bbox[1], 0): min(bbox[3], mask.shape[-1])
-        ][cropped_mask] = this_x_distances[cropped_mask]
         y_distances[
             max(bbox[0], 0): min(bbox[2], mask.shape[-2]),
             max(bbox[1], 0): min(bbox[3], mask.shape[-1])
         ][cropped_mask] = this_y_distances[cropped_mask]
+        x_distances[
+            max(bbox[0], 0): min(bbox[2], mask.shape[-2]),
+            max(bbox[1], 0): min(bbox[3], mask.shape[-1])
+        ][cropped_mask] = this_x_distances[cropped_mask]
 
     cell_ids = np.unique(labels)[1:]  # excluding background id
     for cell_id in cell_ids:
         compute_distance_map(cell_id)
 
     binary_labels = labels > 0
-    return np.stack([binary_labels, x_distances, y_distances], axis=0)
+    return np.stack([binary_labels, y_distances, x_distances], axis=0)  # channels - 0:binary, 1:vertical, 2:horizontal
 
 
 def get_my_livecell_loaders(
@@ -366,9 +374,10 @@ class HoVerNetLoss(nn.Module):
             device=None,
             sobel_kernel_size: int = 5
     ):
-        self.compute_dice = DiceLoss() if compute_dice is None else compute_dice
+        super().__init__()
+        self.compute_dice = DiceLossWithLogits() if compute_dice is None else compute_dice
         self.compute_mse = nn.MSELoss() if compute_mse is None else compute_mse
-        self.compute_bce = nn.BCELoss() if compute_bce is None else compute_bce
+        self.compute_bce = nn.BCEWithLogitsLoss() if compute_bce is None else compute_bce
 
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -382,32 +391,31 @@ class HoVerNetLoss(nn.Module):
         assert size % 2 == 1, f"The expected window size should be odd, but {size} was passed"
         hrange = torch.arange(-size // 2+1, size // 2+1, dtype=torch.float32)
         vrange = torch.arange(-size // 2+1, size // 2+1, dtype=torch.float32)
-        h, v = torch.meshgrid(hrange, vrange)
-        kernel_y = h / (h*h + v*v + 1e-15)
-        kernel_x = v / (h*h + v*v + 1e-15)
-        return kernel_x, kernel_y
+        h, v = torch.meshgrid(hrange, vrange, indexing="xy")
+        kernel_v = v / (h*h + v*v + 1e-15)
+        kernel_h = h / (h*h + v*v + 1e-15)
+        return kernel_v, kernel_h
 
-    def get_distance_gradients(self, h_map, v_map):
+    def get_distance_gradients(self, v_map, h_map):
         "Calculates the gradients of the respective distance maps"
-        kernel_x, kernel_y = self.get_sobel_kernel(self.sobel_kernel_size)
-        kernel_x = kernel_x.view(1, 1, self.sobel_kernel_size, self.sobel_kernel_size)
-        kernel_y = kernel_y.view(1, 1, self.sobel_kernel_size, self.sobel_kernel_size)
+        kernel_v, kernel_h = self.get_sobel_kernel(self.sobel_kernel_size)
+        kernel_v = kernel_v.view(1, 1, self.sobel_kernel_size, self.sobel_kernel_size).to(self.device)
+        kernel_h = kernel_h.view(1, 1, self.sobel_kernel_size, self.sobel_kernel_size).to(self.device)
 
-        h_ch = torch.from_numpy(h_map[None, None])
-        v_ch = torch.from_numpy(v_map[None, None])
+        v_ch = v_map[:, None, ...]
+        h_ch = h_map[:, None, ...]
 
-        g_h = nn.functional.conv2d(h_ch, kernel_x, padding=2)
-        g_v = nn.functional.conv2d(v_ch, kernel_y, padding=2)
-        ghv = torch.cat([g_h, g_v], dim=1)
-        return ghv
+        g_v = nn.functional.conv2d(v_ch, kernel_v, padding=2)
+        g_h = nn.functional.conv2d(h_ch, kernel_h, padding=2)
+        return torch.cat([g_v, g_h], dim=1)
 
     def compute_msge(self, input_, target, focus):
         "Computes the mse loss for the respective gradients of distance maps and combines them together"
-        input_hmap, input_vmap = input_[0], input_[1]
-        target_hmap, target_vmap = target[0], target[1]
+        input_vmap, input_hmap = input_[:, 0, ...], input_[:, 1, ...]
+        target_vmap, target_hmap = target[:, 0, ...], target[:, 1, ...]
 
-        input_grad = self.get_distance_gradients(input_hmap, input_vmap)
-        target_grad = self.get_distance_gradients(target_hmap, target_vmap)
+        input_grad = self.get_distance_gradients(input_vmap, input_hmap)
+        target_grad = self.get_distance_gradients(target_vmap, target_hmap)
         msge_loss = self.compute_mse(input_grad * focus, target_grad * focus)
         return msge_loss
 
@@ -422,11 +430,12 @@ class HoVerNetLoss(nn.Module):
 
     def get_hv_branch_loss(self, input_, target, focus):
         "Computes the loss for the distances maps w.r.t. their respective ground truth."
-        focus = torch.cat([focus[None]] * 2)
+        focus = torch.cat([focus[:, None, ...]] * target.shape[0], dim=1)
+
         # mean squared error loss of combined predicted hv distance maps w.r.t. the true hv distance maps
         mse_loss = self.compute_mse(input_, target)
 
-        # mean squared error loss of the gradients of predicted h & v distance maps w.r.t. the true h & v maps
+        # mean squared error loss of the gradients of predicted v & h distance maps w.r.t. the true v & h maps
         msge_loss = self.compute_msge(input_, target, focus)
 
         # losses added together to get overall loss for distance maps (1*MSE + 2*MSGE - HoVerNet's empirical selection)
@@ -434,15 +443,14 @@ class HoVerNetLoss(nn.Module):
         return output
 
     def forward(self, input_, target):
-        # expected shape of both `input_` and `target` is (3*H*W)
-        # first channel is binary predictions; secound and third channels are horizontal and vertical maps respectively
-        assert input_.ndim == target.ndim == 3, input_.ndim
-        assert input_.shape[0] == target.shape[0] == 3, input_.shape
+        # expected shape of both `input_` and `target` is (B*3*H*W)
+        # first channel is binary predictions; secound and third channels are vertical and horizontal maps respectively
+        assert input_.shape == target.shape, input_.shape
 
-        fg_input_, fg_target = input_[0], target[0]
+        fg_input_, fg_target = input_[:, 0, ...], target[:, 0, ...]
         binary_channel_loss = self.get_np_branch_loss(fg_input_, fg_target)
 
-        hv_input_, hv_target = input_[1:], target[1:]
+        hv_input_, hv_target = input_[:, 1:, ...], target[:, 1:, ...]
         distances_channel_loss = self.get_hv_branch_loss(hv_input_, hv_target, focus=fg_target)
 
         overall_loss = binary_channel_loss + distances_channel_loss
