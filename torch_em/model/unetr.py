@@ -142,6 +142,8 @@ class UNETR(nn.Module):
         self.use_sam_stats = use_sam_stats
         self.use_mae_stats = use_mae_stats
 
+        print(f"Using {encoder} from {backbone.upper()}")
+
         if backbone == "sam":
             if encoder == "vit_b":
                 self.encoder = ViT_Sam(
@@ -167,7 +169,6 @@ class UNETR(nn.Module):
                     global_attn_indexes=[7, 15, 23, 31],  # type: ignore
                     window_size=14, out_chans=256
                 )
-
             else:
                 raise ValueError(f"{encoder} is not supported by SAM. Currently vit_b, vit_l, vit_h are supported.")
 
@@ -255,6 +256,11 @@ class UNETR(nn.Module):
         padh = self.encoder.img_size - h
         padw = self.encoder.img_size - w
         x = F.pad(x, (0, padw, 0, padh))
+
+        # AA: let's check for the number of expected channels and duplicate to the expected number of channels
+        if x.shape[0] != self.encoder.in_chans:
+            x = torch.cat([x] * self.encoder.in_chans, dim=0)
+
         return x
 
     def postprocess_masks(
