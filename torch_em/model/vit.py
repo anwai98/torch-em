@@ -14,10 +14,10 @@ except ImportError:
     _sam_import_success = False
 
 try:
-    import timm.models.vision_transformer as timm_vit
+    import timm
     _timm_import_success = True
 except ImportError:
-    timm_vit.VisionTransformer = object
+    timm.models.vision_transformer.VisionTransformer = object
     _timm_import_success = False
 
 
@@ -60,7 +60,7 @@ class ViT_Sam(ImageEncoderViT):
         return x, list_from_encoder[:3]
 
 
-class ViT_MAE(timm_vit.VisionTransformer):
+class ViT_MAE(timm.models.vision_transformer.VisionTransformer):
     """Vision Transformer derived from the Masked Auto Encoder Codebase (https://arxiv.org/abs/2111.06377)
     https://github.com/facebookresearch/mae/blob/main/models_vit.py#L20-L53
     """
