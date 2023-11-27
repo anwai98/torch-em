@@ -20,7 +20,7 @@ class UNETR(nn.Module):
         encoder="vit_b",
         decoder=None,
         out_channels=1,
-        use_sam_stats=True,
+        use_sam_stats=False,
         use_mae_stats=False,
         encoder_checkpoint_path=None
     ) -> None:
@@ -33,16 +33,18 @@ class UNETR(nn.Module):
 
         self.encoder = get_vision_transformer(backbone=backbone, model=encoder)
 
-        if backbone == "sam":
-            _, model = get_sam_model(
-                model_type=encoder,
-                checkpoint_path=encoder_checkpoint_path,
-                return_sam=True
-            )
-            for param1, param2 in zip(model.parameters(), self.encoder.parameters()):
-                param2.data = param1
-
-        # TODO: ini MAE weights in vit mae
+        if encoder_checkpoint_path is not None:
+            if backbone == "sam":
+                _, model = get_sam_model(
+                    model_type=encoder,
+                    checkpoint_path=encoder_checkpoint_path,
+                    return_sam=True
+                )
+                for param1, param2 in zip(model.parameters(), self.encoder.parameters()):
+                    param2.data = param1
+            elif backbone == "mae":
+                # TODO: ini MAE weights in vit mae
+                raise NotImplementedError
 
         # parameters for the decoder network
         depth = 3
