@@ -86,19 +86,14 @@ class UNETR(nn.Module):
             # TODO: add mean std from mae experiments (or open up arguments for this)
             raise NotImplementedError
         else:
-            pixel_mean = 0
-            pixel_std = 1
+            pixel_mean = torch.Tensor([0.0, 0.0, 0.0]).view(-1, 1, 1).to(device)
+            pixel_std = torch.Tensor([1.0, 1.0, 1.0]).view(-1, 1, 1).to(device)
 
         x = (x - pixel_mean) / pixel_std
         h, w = x.shape[-2:]
         padh = self.encoder.img_size - h
         padw = self.encoder.img_size - w
         x = F.pad(x, (0, padw, 0, padh))
-
-        # AA: let's check for the number of expected channels and duplicate to the expected number of channels
-        if x.shape[0] != self.encoder.in_chans:
-            x = torch.cat([x] * self.encoder.in_chans, dim=0)
-
         return x
 
     def postprocess_masks(
