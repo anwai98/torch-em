@@ -13,6 +13,11 @@ except ImportError:
     get_sam_model = None
 
 
+#
+# UNETR IMPLEMENTATION [Vision Transformer (ViT from MAE / ViT from SAM) + UNet Decoder from `torch_em`]
+#
+
+
 class UNETR(nn.Module):
     def __init__(
         self,
@@ -43,7 +48,6 @@ class UNETR(nn.Module):
                 for param1, param2 in zip(model.parameters(), self.encoder.parameters()):
                     param2.data = param1
             elif backbone == "mae":
-                # TODO: ini MAE weights in vit mae
                 raise NotImplementedError
 
         # parameters for the decoder network
@@ -147,6 +151,11 @@ class UNETR(nn.Module):
 
         x = self.postprocess_masks(x, org_shape, org_shape)
         return x
+
+
+#
+#  ADDITIONAL FUNCTIONALITIES
+#
 
 
 class SingleDeconv2DBlock(nn.Module):
