@@ -34,7 +34,7 @@ def get_custom_unetr_model(
         model_state = checkpoint_path
 
     if args.joint_training:
-        model = torch_em_models.UNETR(
+        model = torch_em_models.VNETR(
             backbone="sam",
             encoder=model_name,
             out_channels=output_channels,
@@ -44,7 +44,7 @@ def get_custom_unetr_model(
         )
 
     else:
-        model = torch_em_models.VNETR(
+        model = torch_em_models.UNETR(
             backbone="sam",
             encoder=model_name,
             out_channels=output_channels,
