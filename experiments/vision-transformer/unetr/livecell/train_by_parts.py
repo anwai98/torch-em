@@ -22,7 +22,9 @@ def prune_prefix(checkpoint_path):
     return updated_model_state
 
 
-def get_custom_unetr_model(device, model_name, sam_initialization, output_channels, checkpoint_path, freeze_encoder):
+def get_custom_unetr_model(
+        device, model_name, sam_initialization, output_channels, checkpoint_path, freeze_encoder, joint_training
+):
     if checkpoint_path is not None:
         if checkpoint_path.endswith("pt"):  # for finetuned models
             model_state = prune_prefix(checkpoint_path)
@@ -31,14 +33,26 @@ def get_custom_unetr_model(device, model_name, sam_initialization, output_channe
     else:  # while checkpoint path is None, hence we train from scratch
         model_state = checkpoint_path
 
-    model = torch_em_models.UNETR(
-        backbone="sam",
-        encoder=model_name,
-        out_channels=output_channels,
-        use_sam_stats=sam_initialization,
-        final_activation="Sigmoid",
-        encoder_checkpoint=model_state
-    )
+    if args.joint_training:
+        model = torch_em_models.UNETR(
+            backbone="sam",
+            encoder=model_name,
+            out_channels=output_channels,
+            use_sam_stats=sam_initialization,
+            final_activation="Sigmoid",
+            encoder_checkpoint=model_state
+        )
+
+    else:
+        model = torch_em_models.VNETR(
+            backbone="sam",
+            encoder=model_name,
+            out_channels=output_channels,
+            use_sam_stats=sam_initialization,
+            final_activation="Sigmoid",
+            encoder_checkpoint=model_state
+        )
+
     model.to(device)
 
     # if expected, let's freeze the image encoder
@@ -66,7 +80,7 @@ def main(args):
     # get the custom model for the training and inference on livecell dataset
     model = get_custom_unetr_model(
         device, args.model_name, sam_initialization=args.do_sam_ini, output_channels=3,
-        checkpoint_path=args.checkpoint, freeze_encoder=args.freeze_encoder
+        checkpoint_path=args.checkpoint, freeze_encoder=args.freeze_encoder, joint_training=args.joint_training
     )
 
     # determining where to save the checkpoints and tensorboard logs
@@ -122,6 +136,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--freeze_encoder", action="store_true", help="Experiments to freeze the encoder."
+    )
+    parser.add_argument(
+        "--joint_training", action="store_true", help="Uses VNETR for training"
     )
     args = parser.parse_args()
     main(args)
