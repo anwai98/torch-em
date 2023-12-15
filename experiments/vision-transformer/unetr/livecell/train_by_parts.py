@@ -40,7 +40,7 @@ def get_custom_unetr_model(
         use_sam_stats=sam_initialization,
         final_activation="Sigmoid",
         encoder_checkpoint=model_state,
-        use_skip_connection=not args.joint_training  # if joint_training, no skip con. else, use skip con. by default
+        use_skip_connection=not joint_training  # if joint_training, no skip con. else, use skip con. by default
     )
 
     model.to(device)
