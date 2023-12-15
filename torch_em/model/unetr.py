@@ -70,11 +70,13 @@ class UNETR(nn.Module):
         use_mae_stats: bool = False,
         encoder_checkpoint: Optional[Union[str, OrderedDict]] = None,
         final_activation: Optional[Union[str, nn.Module]] = None,
+        use_skip_connection: bool = True
     ) -> None:
         super().__init__()
 
         self.use_sam_stats = use_sam_stats
         self.use_mae_stats = use_mae_stats
+        self.use_skip_connection = use_skip_connection
 
         print(f"Using {encoder} from {backbone.upper()}")
         self.encoder = get_vision_transformer(img_size=img_size, backbone=backbone, model=encoder)
@@ -110,7 +112,10 @@ class UNETR(nn.Module):
 
         self.deconv4 = SingleDeconv2DBlock(features_decoder[-1], features_decoder[-1])
 
-        self.decoder_head = ConvBlock2d(2*features_decoder[-1], features_decoder[-1])
+        self.decoder_head = ConvBlock2d(
+            2 * features_decoder[-1] if self.use_skip_connection else features_decoder[-1],
+            features_decoder[-1])
+
         self.final_activation = self._get_activation(final_activation)
 
     def _get_activation(self, activation):
@@ -167,25 +172,35 @@ class UNETR(nn.Module):
         # backbone used for reshaping inputs to the desired "encoder" shape
         x = torch.stack([self.preprocess(e) for e in x], dim=0)
 
-        z0 = self.z_inputs(x)
+        if self.use_skip_connection:
+            z0 = self.z_inputs(x)
 
         z12, from_encoder = self.encoder(x)
-        x = self.base(z12)
 
-        from_encoder = from_encoder[::-1]
-        z9 = self.deconv1(from_encoder[0])
+        if self.use_skip_connection:
+            from_encoder = from_encoder[::-1]
+            z9 = self.deconv1(from_encoder[0])
 
-        z6 = self.deconv1(from_encoder[1])
-        z6 = self.deconv2(z6)
+            z6 = self.deconv1(from_encoder[1])
+            z6 = self.deconv2(z6)
 
-        z3 = self.deconv1(from_encoder[2])
-        z3 = self.deconv2(z3)
-        z3 = self.deconv3(z3)
+            z3 = self.deconv1(from_encoder[2])
+            z3 = self.deconv2(z3)
+            z3 = self.deconv3(z3)
+
+        else:
+            z9 = self.deconv1(z12)
+            z6 = self.deconv2(z9)
+            z3 = self.deconv3(z6)
 
         updated_from_encoder = [z9, z6, z3]
+
+        x = self.base(z12)
         x = self.decoder(x, encoder_inputs=updated_from_encoder)
         x = self.deconv4(x)
-        x = torch.cat([x, z0], dim=1)
+
+        if self.use_skip_connection:
+            x = torch.cat([x, z0], dim=1)
 
         x = self.decoder_head(x)
 

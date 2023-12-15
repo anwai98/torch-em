@@ -33,25 +33,15 @@ def get_custom_unetr_model(
     else:  # while checkpoint path is None, hence we train from scratch
         model_state = checkpoint_path
 
-    if args.joint_training:
-        model = torch_em_models.VNETR(
-            backbone="sam",
-            encoder=model_name,
-            out_channels=output_channels,
-            use_sam_stats=sam_initialization,
-            final_activation="Sigmoid",
-            encoder_checkpoint=model_state
-        )
-
-    else:
-        model = torch_em_models.UNETR(
-            backbone="sam",
-            encoder=model_name,
-            out_channels=output_channels,
-            use_sam_stats=sam_initialization,
-            final_activation="Sigmoid",
-            encoder_checkpoint=model_state
-        )
+    model = torch_em_models.UNETR(
+        backbone="sam",
+        encoder=model_name,
+        out_channels=output_channels,
+        use_sam_stats=sam_initialization,
+        final_activation="Sigmoid",
+        encoder_checkpoint=model_state,
+        use_skip_connection=not args.joint_training  # if joint_training, no skip con. else, use skip con. by default
+    )
 
     model.to(device)
 
