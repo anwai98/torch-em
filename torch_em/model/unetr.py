@@ -92,7 +92,7 @@ class UNETR(nn.Module):
             # let's see if the model comes from `segment_anything.modelling.image_encoder.ImageEncoderViT`
             # if that's the case, we need to remove the last `neck` block from the image encoder
             if ImageEncoderViT is None:
-                raise ModuleNotFoundError("`segment_anything is not installed.")
+                raise ModuleNotFoundError("`segment_anything` is not installed.")
 
             if isinstance(self.encoder, ImageEncoderViT):
                 del self.encoder.neck
