@@ -194,11 +194,10 @@ class UNETR(nn.Module):
 
         use_skip_connection = getattr(self, "use_skip_connection", True)
 
-        try:
-            z12, from_encoder = self.encoder(x)
-        except ValueError:
+        if isinstance(self.encoder, ImageEncoderViT):
             z12 = self.encoder(x)
-        breakpoint()
+        else:
+            z12, from_encoder = self.encoder(x)
 
         if use_skip_connection:
             # TODO: we share the weights in the deconv(s), and should preferably avoid doing that
