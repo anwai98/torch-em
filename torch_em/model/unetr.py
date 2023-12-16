@@ -10,8 +10,10 @@ from .vit import get_vision_transformer
 
 try:
     from micro_sam.util import get_sam_model
+    from segment_anything.modeling.image_encoder import ImageEncoderViT
 except ImportError:
     get_sam_model = None
+    ImageEncoderViT = None
 
 
 #
@@ -86,6 +88,14 @@ class UNETR(nn.Module):
 
         else:  # `nn.Module` ViT backbone
             self.encoder = encoder
+
+            # let's see if the model comes from `segment_anything.modelling.image_encoder.ImageEncoderViT`
+            # if that's the case, we need to remove the last `neck` block from the image encoder
+            if ImageEncoderViT is None:
+                raise ModuleNotFoundError("`segment_anything is not installed.")
+
+            if isinstance(self.encoder, ImageEncoderViT):
+                del self.encoder.neck
 
         # parameters for the decoder network
         depth = 3
@@ -184,7 +194,11 @@ class UNETR(nn.Module):
 
         use_skip_connection = getattr(self, "use_skip_connection", True)
 
-        z12, from_encoder = self.encoder(x)
+        try:
+            z12, from_encoder = self.encoder(x)
+        except ValueError:
+            z12 = self.encoder(x)
+        breakpoint()
 
         if use_skip_connection:
             # TODO: we share the weights in the deconv(s), and should preferably avoid doing that
