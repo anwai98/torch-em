@@ -24,7 +24,7 @@ class UNETR(nn.Module):
     def _load_encoder_from_checkpoint(self, backbone, encoder, checkpoint):
 
         if isinstance(checkpoint, str):
-            if backbone == "sam":
+            if backbone == "sam" and isinstance(encoder, str):
                 # If we have a SAM encoder, then we first try to load the full SAM Model
                 # (using micro_sam) and otherwise fall back on directly loading the encoder state
                 # from the checkpoint
@@ -63,7 +63,7 @@ class UNETR(nn.Module):
         self,
         img_size: int = 1024,
         backbone: str = "sam",
-        encoder: str = "vit_b",
+        encoder: Optional[Union[nn.Module, str]] = "vit_b",
         decoder: Optional[nn.Module] = None,
         out_channels: int = 1,
         use_sam_stats: bool = False,
@@ -78,10 +78,14 @@ class UNETR(nn.Module):
         self.use_mae_stats = use_mae_stats
         self.use_skip_connection = use_skip_connection
 
-        print(f"Using {encoder} from {backbone.upper()}")
-        self.encoder = get_vision_transformer(img_size=img_size, backbone=backbone, model=encoder)
-        if encoder_checkpoint is not None:
-            self._load_encoder_from_checkpoint(backbone, encoder, encoder_checkpoint)
+        if isinstance(encoder, str):  # "vit_b" / "vit_l" / "vit_h"
+            print(f"Using {encoder} from {backbone.upper()}")
+            self.encoder = get_vision_transformer(img_size=img_size, backbone=backbone, model=encoder)
+            if encoder_checkpoint is not None:
+                self._load_encoder_from_checkpoint(backbone, encoder, encoder_checkpoint)
+
+        else:  # `nn.Module` ViT backbone
+            self.encoder = encoder
 
         # parameters for the decoder network
         depth = 3
@@ -101,12 +105,19 @@ class UNETR(nn.Module):
         else:
             self.decoder = decoder
 
-        self.z_inputs = ConvBlock2d(self.encoder.in_chans, features_decoder[-1])
+        try:
+            in_chans = self.encoder.in_chans.in_chans
+            embed_dim = self.encoder.in_chans.embed_dim
+        except AttributeError:
+            in_chans = self.encoder.patch_embed.proj.in_channels
+            embed_dim = self.encoder.patch_embed.proj.out_channels
 
-        self.base = ConvBlock2d(self.encoder.embed_dim, features_decoder[0])
+        self.z_inputs = ConvBlock2d(in_chans, features_decoder[-1])
+        self.base = ConvBlock2d(embed_dim, features_decoder[0])
+
         self.out_conv = nn.Conv2d(features_decoder[-1], out_channels, 1)
 
-        self.deconv1 = Deconv2DBlock(self.encoder.embed_dim, features_decoder[0])
+        self.deconv1 = Deconv2DBlock(embed_dim, features_decoder[0])
         self.deconv2 = Deconv2DBlock(features_decoder[0], features_decoder[1])
         self.deconv3 = Deconv2DBlock(features_decoder[1], features_decoder[2])
         self.deconv4 = Deconv2DBlock(features_decoder[2], features_decoder[3])
