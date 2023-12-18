@@ -6,14 +6,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .unet import Decoder, ConvBlock2d, Upsampler2d
-from .vit import get_vision_transformer
+from .vit import get_vision_transformer, ViT_MAE, ViT_Sam
 
 try:
     from micro_sam.util import get_sam_model
-    from segment_anything.modeling.image_encoder import ImageEncoderViT
 except ImportError:
     get_sam_model = None
-    ImageEncoderViT = None
 
 
 #
@@ -72,7 +70,8 @@ class UNETR(nn.Module):
         use_mae_stats: bool = False,
         encoder_checkpoint: Optional[Union[str, OrderedDict]] = None,
         final_activation: Optional[Union[str, nn.Module]] = None,
-        use_skip_connection: bool = True
+        use_skip_connection: bool = True,
+        embed_dim: Optional[int] = None
     ) -> None:
         super().__init__()
 
@@ -86,16 +85,25 @@ class UNETR(nn.Module):
             if encoder_checkpoint is not None:
                 self._load_encoder_from_checkpoint(backbone, encoder, encoder_checkpoint)
 
+            in_chans = self.encoder.in_chans
+            if embed_dim is None:
+                embed_dim = self.encoder.embed_dim
+
         else:  # `nn.Module` ViT backbone
             self.encoder = encoder
 
-            # let's see if the model comes from `segment_anything.modelling.image_encoder.ImageEncoderViT`
-            # if that's the case, we need to remove the last `neck` block from the image encoder
-            if ImageEncoderViT is None:
-                raise ModuleNotFoundError("`segment_anything` is not installed.")
+            have_neck = False
+            for name, _ in self.encoder.named_parameters():
+                if name.startswith("neck"):
+                    have_neck = True
 
-            if isinstance(self.encoder, ImageEncoderViT):
-                del self.encoder.neck
+            if embed_dim is None:
+                if have_neck:
+                    embed_dim = self.encoder.neck[2].out_channels  # the value is 256
+                else:
+                    embed_dim = self.encoder.patch_embed.proj.out_channels
+
+            in_chans = self.encoder.patch_embed.proj.in_channels
 
         # parameters for the decoder network
         depth = 3
@@ -115,14 +123,8 @@ class UNETR(nn.Module):
         else:
             self.decoder = decoder
 
-        try:
-            in_chans = self.encoder.in_chans.in_chans
-            embed_dim = self.encoder.in_chans.embed_dim
-        except AttributeError:
-            in_chans = self.encoder.patch_embed.proj.in_channels
-            embed_dim = self.encoder.patch_embed.proj.out_channels
-
         self.z_inputs = ConvBlock2d(in_chans, features_decoder[-1])
+
         self.base = ConvBlock2d(embed_dim, features_decoder[0])
 
         self.out_conv = nn.Conv2d(features_decoder[-1], out_channels, 1)
@@ -194,10 +196,12 @@ class UNETR(nn.Module):
 
         use_skip_connection = getattr(self, "use_skip_connection", True)
 
-        if isinstance(self.encoder, ImageEncoderViT):
-            z12 = self.encoder(x)
+        encoder_outputs = self.encoder(x)
+
+        if isinstance(self.encoder, ViT_Sam) or isinstance(self.encoder, ViT_MAE):
+            z12, from_encoder = encoder_outputs
         else:
-            z12, from_encoder = self.encoder(x)
+            z12 = encoder_outputs
 
         if use_skip_connection:
             # TODO: we share the weights in the deconv(s), and should preferably avoid doing that
