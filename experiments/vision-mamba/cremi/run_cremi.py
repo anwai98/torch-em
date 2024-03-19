@@ -140,8 +140,6 @@ def run_cremi_training(args):
         with_cls_token=True
     )
 
-    print(model.decoder.samplers)
-
     save_root = get_save_root(args)
 
     # loss function

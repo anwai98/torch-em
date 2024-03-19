@@ -159,7 +159,7 @@ def get_vim_encoder(model_type="vim_t", with_cls_token=True):
             if_cls_token=with_cls_token,
         )
     else:
-        raise ValueError("Choose from `vim_t` or `vim_b`")
+        raise ValueError("Choose from 'vim_t' / 'vim_s' / 'vim_b'")
 
     encoder.default_cfg = _cfg()
     return encoder
