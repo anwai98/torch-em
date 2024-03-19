@@ -77,11 +77,11 @@ def get_loaders(args, patch_shape=(1, 512, 512)):
 
 def get_output_channels(args):
     if args.boundaries:
-        output_channels = 2
+        output_channels = 1
     elif args.distances:
         output_channels = 3
     elif args.affinities:
-        output_channels = (len(OFFSETS) + 1)
+        output_channels = len(OFFSETS)
 
     return output_channels
 
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input", type=str, default=os.path.join(ROOT, "data", "cremi"))
     parser.add_argument("--iterations", type=int, default=1e5)
-    parser.add_argument("-s", "--save_root", type=str, default=os.path.join(ROOT, "experiments", "vision-mamba"))
+    parser.add_argument("-s", "--save_root", type=str, default=os.path.join(ROOT, "experiments", "vimunet"))
     parser.add_argument("-m", "--model_type", type=str, default="vim_t")
 
     parser.add_argument("--pretrained", action="store_true")
