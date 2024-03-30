@@ -107,7 +107,10 @@ def _get_model(trainer, postprocessing):
 
 def _pad(input_data, trainer):
     try:
-        ndim = trainer.train_loader.dataset.ndim
+        if isinstance(trainer.train_loader.dataset, torch.utils.data.dataset.Subset):
+            ndim = trainer.train_loader.dataset.dataset.ndim
+        else:
+            ndim = trainer.train_loader.dataset.ndim
     except AttributeError:
         ndim = trainer.train_loader.dataset.datasets[0].ndim
     target_dims = ndim + 2
@@ -122,8 +125,6 @@ def _write_depedencies(export_folder, dependencies):
         ver = torch.__version__
         major, minor = list(map(int, ver.split(".")[:2]))
         assert major in (1, 2)
-        if major == 2:
-            warn("Modelzoo functionality is not fully tested for PyTorch 2")
         # the torch zip layout changed for a few versions:
         torch_min_version = "1.0"
         if minor > 6 and minor < 10:
@@ -305,7 +306,10 @@ def _write_weights(model, export_folder):
 
 def _get_preprocessing(trainer):
     try:
-        ndim = trainer.train_loader.dataset.ndim
+        if isinstance(trainer.train_loader.dataset, torch.utils.data.dataset.Subset):
+            ndim = trainer.train_loader.dataset.dataset.ndim
+        else:
+            ndim = trainer.train_loader.dataset.ndim
     except AttributeError:
         ndim = trainer.train_loader.dataset.datasets[0].ndim
     normalizer = get_normalizer(trainer)
@@ -357,7 +361,7 @@ def _get_preprocessing(trainer):
         if std is not None:
             preprocessing[0]["kwargs"]["std"] = std
 
-    elif name == "torch_em.transform.normalize_percentile":
+    elif name == "torch_em.transform.raw.normalize_percentile":
 
         lower, upper = kwargs.get("lower", 1.0), kwargs.get("upper", 99.0)
         axes = _get_axes(kwargs.get("axis", None))
