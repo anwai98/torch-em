@@ -19,8 +19,8 @@ from torch_em.loss import DiceLoss, LossWrapper, ApplyAndRemoveMask, DiceBasedDi
 
 
 import elf.segmentation.multicut as mc
-import elf.segmentation.features as feats
 import elf.segmentation.watershed as ws
+import elf.segmentation.features as feats
 from elf.evaluation import mean_segmentation_accuracy
 
 
@@ -255,7 +255,7 @@ def run_cremi_inference(args, device):
         print(f"The result is saved at {res_path}")
         return
 
-    msa_list, sa50_list = [], []
+    msa_list, sa50_list, sa75_list = [], [], []
     for image_path, label_path in tqdm(zip(all_test_images, all_test_labels), total=len(all_test_images)):
         image = imageio.imread(image_path)
         labels = imageio.imread(label_path)
@@ -279,7 +279,7 @@ def run_cremi_inference(args, device):
         elif args.distances:
             fg, cdist, bdist = predictions
             instances = segmentation.watershed_from_center_and_boundary_distances(
-                cdist, bdist, np.ones_like(fg), min_size=50,
+                cdist, bdist, fg, min_size=50,
                 center_distance_threshold=0.5,
                 boundary_distance_threshold=0.6,
                 distance_smoothing=1.0
@@ -288,11 +288,13 @@ def run_cremi_inference(args, device):
         msa, sa_acc = mean_segmentation_accuracy(instances, labels, return_accuracies=True)
         msa_list.append(msa)
         sa50_list.append(sa_acc[0])
+        sa75_list.append(sa_acc[5])
 
     res = {
         "LiveCELL": "Metrics",
         "mSA": np.mean(msa_list),
-        "SA50": np.mean(sa50_list)
+        "SA50": np.mean(sa50_list),
+        "SA75": np.mean(sa75_list)
     }
     df = pd.DataFrame.from_dict([res])
     df.to_csv(res_path)
