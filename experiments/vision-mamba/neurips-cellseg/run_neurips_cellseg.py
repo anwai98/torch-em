@@ -4,8 +4,8 @@ import argparse
 import torch
 
 import torch_em
-from torch_em.model import UNETR, UNet2d
 from torch_em.data import MinInstanceSampler
+from torch_em.model import get_vimunet_model
 from torch_em.data.datasets import get_neurips_cellseg_supervised_loader
 from torch_em.transform.label import AffinityTransform, BoundaryTransform
 from torch_em.loss import DiceLoss, LossWrapper, ApplyAndRemoveMask, DiceBasedDistanceLoss
@@ -19,13 +19,6 @@ OFFSETS = [
     [-9, 0], [0, -9],
     [-27, 0], [0, -27]
 ]
-
-MODELS = {
-    "vit_t": "/scratch/usr/nimanwai/models/segment-anything/checkpoints/vit_t_mobile_sam.pth",
-    "vit_b": "/scratch/usr/nimanwai/models/segment-anything/checkpoints/sam_vit_b_01ec64.pth",
-    "vit_l": "/scratch/usr/nimanwai/models/segment-anything/checkpoints/sam_vit_l_0b3195.pth",
-    "vit_h": "/scratch/usr/nimanwai/models/segment-anything/checkpoints/sam_vit_h_4b8939.pth"
-}
 
 
 def get_loaders(args, patch_shape=(512, 512)):
@@ -76,7 +69,7 @@ def get_output_channels(args):
     elif args.distances:
         output_channels = 3
     elif args.affinities:
-        output_channels = len(OFFSETS) + 1
+        output_channels = (len(OFFSETS) + 1)
 
     return output_channels
 
@@ -116,36 +109,24 @@ def get_save_root(args):
     return save_root
 
 
-def get_model(args, device):
-    output_channels = get_output_channels(args)
-
-    if args.model_type == "unet":
-        # the UNet model
-        model = UNet2d(
-            in_channels=3,
-            out_channels=output_channels,
-            initial_features=64,
-            final_activation="Sigmoid",
-        )
-    else:
-        # the UNETR model
-        model = UNETR(
-            encoder=args.model_type,
-            out_channels=output_channels,
-            use_sam_stats=args.pretrained,
-            encoder_checkpoint=MODELS[args.model_type] if args.pretrained else None,
-            final_activation="Sigmoid"
-        )
-        model.to(device)
-
-    return model
-
-
 def run_neurips_cellseg_training(args, device):
     # the dataloaders for neurips cellseg dataset
     train_loader, val_loader = get_loaders(args)
 
-    model = get_model(args, device)
+    if args.pretrained:
+        checkpoint = "/scratch/usr/nimanwai/models/Vim-tiny/vim_tiny_73p1.pth"
+    else:
+        checkpoint = None
+
+    output_channels = get_output_channels(args)
+
+    # the vision-mamba + decoder (UNet-based) model
+    model = get_vimunet_model(
+        out_channels=output_channels,
+        model_type=args.model_type,
+        checkpoint=checkpoint,
+        with_cls_token=True
+    )
 
     save_root = get_save_root(args)
 
@@ -153,7 +134,7 @@ def run_neurips_cellseg_training(args, device):
     loss = get_loss_function(args)
 
     trainer = torch_em.default_segmentation_trainer(
-        name="neurips-cellseg-unet" if args.model_type == "unet" else "neurips-cellseg-unetr",
+        name="neurips-cellseg-vimunet",
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
