@@ -12,9 +12,9 @@ import torch
 import torch_em
 from torch_em.util import segmentation
 from torch_em.model import UNETR, UNet2d
-from torch_em.data import MinInstanceSampler
+from torch_em.transform.raw import standardize
 from torch_em.data.datasets import get_livecell_loader
-from torch_em.util.prediction import predict_with_halo
+from torch_em.util.prediction import predict_with_padding
 from torch_em.loss import DiceLoss, LossWrapper, ApplyAndRemoveMask, DiceBasedDistanceLoss
 
 import elf.segmentation.multicut as mc
@@ -245,7 +245,6 @@ def _do_affs_multicut_watershed(affs, offsets):
 
 
 def run_livecell_unetr_inference(args, device):
-    raise NotImplementedError
     save_root = get_save_root(args)
 
     checkpoint = os.path.join(
@@ -266,7 +265,7 @@ def run_livecell_unetr_inference(args, device):
     all_test_labels = glob(os.path.join(ROOT, "data", "livecell", "annotations", "livecell_test_images", "*", "*"))
 
     res_path = os.path.join(save_root, "results.csv")
-    if os.path.exists(res_path):
+    if os.path.exists(res_path) and not args.force:
         print(pd.read_csv(res_path))
         print(f"The result is saved at {res_path}")
         return
@@ -279,18 +278,18 @@ def run_livecell_unetr_inference(args, device):
         image = imageio.imread(os.path.join(test_image_dir, image_id))
         image = standardize(image)
 
-        tensor_image = torch.from_numpy(image)[None, None].to(device)
-
-        predictions = model(tensor_image)
-        predictions = predictions.squeeze().detach().cpu().numpy()
+        predictions = predict_with_padding(model, image, min_divisible=(16, 16), device=device)
+        predictions = predictions.squeeze()
 
         if args.boundaries:
             fg, bd = predictions
-            instances = segmentation.watershed_from_components(bd, fg)
+            # instances = segmentation.watershed_from_components(bd, fg)
+            instances = _do_bd_multicut_watershed(bd)
 
         elif args.affinities:
             fg, affs = predictions[0], predictions[1:]
-            instances = segmentation.mutex_watershed_segmentation(fg, affs, offsets=OFFSETS)
+            # instances = segmentation.mutex_watershed_segmentation(fg, affs, offsets=OFFSETS)
+            instances = _do_affs_multicut_watershed(affs[:2], OFFSETS[:2])
 
         elif args.distances:
             fg, cdist, bdist = predictions
