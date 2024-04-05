@@ -296,7 +296,7 @@ def run_cremi_unetr_inference(args, device):
             affs = predictions
 
             # instances = segmentation.mutex_watershed_segmentation(np.ones_like(labels), affs, offsets=OFFSETS)
-            instances = _do_affs_multicut_watershed(affs[:2], OFFSETS[:2])
+            instances = _do_affs_multicut_watershed(affs[:4], OFFSETS[:4])
 
         elif args.distances:
             fg, cdist, bdist = predictions

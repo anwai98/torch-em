@@ -289,7 +289,7 @@ def run_livecell_unetr_inference(args, device):
         elif args.affinities:
             fg, affs = predictions[0], predictions[1:]
             # instances = segmentation.mutex_watershed_segmentation(fg, affs, offsets=OFFSETS)
-            instances = _do_affs_multicut_watershed(affs[:2], OFFSETS[:2])
+            instances = _do_affs_multicut_watershed(affs[:4], OFFSETS[:4])
 
         elif args.distances:
             fg, cdist, bdist = predictions
