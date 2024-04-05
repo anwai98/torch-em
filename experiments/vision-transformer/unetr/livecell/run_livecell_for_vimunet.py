@@ -180,7 +180,7 @@ def run_livecell_unetr_training(args, device):
 
 
 def _do_bd_multicut_watershed(bd):
-    ws_seg, max_id = ws.distance_transform_watershed(bd, threshold=0.5, sigma_seeds=2.0)
+    ws_seg, max_id = ws.distance_transform_watershed(bd, threshold=0.25, sigma_seeds=2.0)
 
     # compute the region adjacency graph
     rag = feats.compute_rag(ws_seg)
@@ -283,13 +283,19 @@ def run_livecell_unetr_inference(args, device):
 
         if args.boundaries:
             fg, bd = predictions
-            # instances = segmentation.watershed_from_components(bd, fg)
-            instances = _do_bd_multicut_watershed(bd)
+
+            if args.multicut:
+                instances = _do_bd_multicut_watershed(bd)
+            else:
+                instances = segmentation.watershed_from_components(bd, fg)
 
         elif args.affinities:
             fg, affs = predictions[0], predictions[1:]
-            # instances = segmentation.mutex_watershed_segmentation(fg, affs, offsets=OFFSETS)
-            instances = _do_affs_multicut_watershed(affs[:4], OFFSETS[:4])
+
+            if args.multicut:
+                instances = _do_affs_multicut_watershed(affs[:4], OFFSETS[:4])
+            else:
+                instances = segmentation.mutex_watershed_segmentation(fg, affs, offsets=OFFSETS)
 
         elif args.distances:
             fg, cdist, bdist = predictions
@@ -340,6 +346,8 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", action="store_true")
 
     parser.add_argument("--force", action="store_true")
+
+    parser.add_argument("--multicut", action="store_true")
 
     parser.add_argument("--train", action="store_true")
     parser.add_argument("--predict", action="store_true")
