@@ -1,5 +1,6 @@
 from .asem import get_asem_loader, get_asem_dataset
 from .axondeepseg import get_axondeepseg_loader, get_axondeepseg_dataset
+from .cellmap_segmentation import get_cellmap_segmentation_loader, get_cellmap_segmentation_dataset
 from .cem import get_mitolab_loader
 from .cremi import get_cremi_loader, get_cremi_dataset
 from .deepict import get_deepict_actin_loader, get_deepict_actin_dataset
